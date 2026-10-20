@@ -1,0 +1,44 @@
+services:
+  mcp:
+    # Misma imagen que se verifico en el entorno local; evita cambios de stable.
+    image: ${PLANE_MCP_IMAGE:-makeplane/plane-mcp-server@sha256:7890d0a6cbbd062311907a5daa8ca612a81fcf101790ea4936e9350d2928ce55}
+    restart: unless-stopped
+    ports:
+      - "${MCP_BIND_HOST:-127.0.0.1}:${MCP_HOST_PORT:-8211}:8211"
+    environment:
+      REDIS_HOST: valkey
+      REDIS_PORT: "6379"
+      PLANE_BASE_URL: ${PLANE_BASE_URL:?Configura la URL de Plane accesible desde el servidor}
+      # El modo HTTP inicia tambien las rutas OAuth.
+      PLANE_OAUTH_PROVIDER_BASE_URL: ${PLANE_OAUTH_PROVIDER_BASE_URL:?Configura la URL del MCP}
+      PLANE_OAUTH_PROVIDER_CLIENT_ID: ${PLANE_OAUTH_PROVIDER_CLIENT_ID:?Configura el cliente OAuth de Plane}
+      PLANE_OAUTH_PROVIDER_CLIENT_SECRET: ${PLANE_OAUTH_PROVIDER_CLIENT_SECRET:?Configura el secreto OAuth de Plane}
+      LOG_PAYLOADS: "false"
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      # Sin credenciales, 401 demuestra que la ruta protegida responde.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import http.client; c = http.client.HTTPConnection('127.0.0.1', 8211, timeout=5); c.request('POST', '/http/api-key/mcp', body='{}', headers={'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream'}); raise SystemExit(0 if c.getresponse().status == 401 else 1)"
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  valkey-data:

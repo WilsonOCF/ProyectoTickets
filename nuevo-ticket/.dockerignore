@@ -1,0 +1,12 @@
+**
+!package.json
+!package-lock.json
+!requirements.txt
+!server.js
+!lib/
+!lib/**
+!public/
+!public/**
+!scripts/
+!scripts/analyze_ticket.py
+!scripts/cursor_bridge.py

@@ -1,0 +1,110 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+# Third party imports
+import pytz
+
+# Django imports
+from django.db import models
+
+# Module imports
+from plane.db.mixins import ChangeTrackerMixin
+from plane.db.models.project import Project, ProjectBaseModel
+
+
+class Intake(ProjectBaseModel):
+    name = models.CharField(max_length=255)
+    description = models.TextField(verbose_name="Intake Description", blank=True)
+    is_default = models.BooleanField(default=False)
+    view_props = models.JSONField(default=dict)
+    logo_props = models.JSONField(default=dict)
+
+    def __str__(self):
+        """Return name of the intake"""
+        return f"{self.name} <{self.project.name}>"
+
+    class Meta:
+        unique_together = ["name", "project", "deleted_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["name", "project"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="intake_unique_name_project_when_deleted_at_null",
+            )
+        ]
+        verbose_name = "Intake"
+        verbose_name_plural = "Intakes"
+        db_table = "intakes"
+        ordering = ("name",)
+
+
+class SourceType(models.TextChoices):
+    IN_APP = "IN_APP"
+
+
+class IntakeIssueStatus(models.IntegerChoices):
+    PENDING = -2
+    REJECTED = -1
+    SNOOZED = 0
+    ACCEPTED = 1
+    DUPLICATE = 2
+
+
+class IntakeIssue(ChangeTrackerMixin, ProjectBaseModel):
+    TRACKED_FIELDS = ["snoozed_till"]
+
+    intake = models.ForeignKey("db.Intake", related_name="issue_intake", on_delete=models.CASCADE)
+    issue = models.ForeignKey("db.Issue", related_name="issue_intake", on_delete=models.CASCADE)
+    status = models.IntegerField(
+        choices=(
+            (-2, "Pending"),
+            (-1, "Rejected"),
+            (0, "Snoozed"),
+            (1, "Accepted"),
+            (2, "Duplicate"),
+        ),
+        default=-2,
+    )
+    snoozed_till = models.DateTimeField(null=True)
+    duplicate_to = models.ForeignKey(
+        "db.Issue",
+        related_name="intake_duplicate",
+        on_delete=models.SET_NULL,
+        null=True,
+    )
+    source = models.CharField(max_length=255, default="IN_APP", null=True, blank=True)
+    source_email = models.TextField(blank=True, null=True)
+    external_source = models.CharField(max_length=255, null=True, blank=True)
+    external_id = models.CharField(max_length=255, blank=True, null=True)
+    extra = models.JSONField(default=dict)
+
+    class Meta:
+        verbose_name = "IntakeIssue"
+        verbose_name_plural = "IntakeIssues"
+        db_table = "intake_issues"
+        ordering = ("-created_at",)
+        indexes = [
+            # Small partial index for the unsnooze beat task, which scans for lapsed snoozes every few minutes.
+            models.Index(
+                fields=["snoozed_till"],
+                condition=models.Q(status=IntakeIssueStatus.SNOOZED),
+                name="intake_issue_snoozed_till_idx",
+            ),
+        ]
+
+    def __str__(self):
+        """Return name of the Issue"""
+        return f"{self.issue.name} <{self.intake.name}>"
+
+    def save(self, *args, **kwargs):
+        # A snooze is day-granular whatever time the caller sent: wake at 00:00 of
+        # that day in the project's timezone. Project.save() re-times it if the
+        # project timezone later changes.
+        if self.snoozed_till and (self._state.adding or self.has_changed("snoozed_till")):
+            # Inline import: timezone_converter imports plane.db.models.
+            from plane.utils.timezone_converter import project_day_start
+
+            project_tz = pytz.timezone(Project.objects.values_list("timezone", flat=True).get(id=self.project_id))
+            self.snoozed_till = project_day_start(self.snoozed_till.astimezone(project_tz).date(), project_tz)
+        super().save(*args, **kwargs)

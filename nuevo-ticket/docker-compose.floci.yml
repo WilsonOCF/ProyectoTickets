@@ -1,0 +1,19 @@
+# Solo el emulador S3 de Floci en el puerto 4566 (sin mapear Redis, para no pelear con Plane).
+name: floci-tickets
+
+services:
+  floci:
+    image: floci/floci:latest
+    container_name: floci-s3
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      FLOCI_HOSTNAME: floci
+      FLOCI_BASE_URL: http://floci:4566
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+    volumes:
+      - floci-data:/app/data
+
+volumes:
+  floci-data:

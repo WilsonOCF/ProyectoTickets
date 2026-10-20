@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nuevo Ticket</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="auth-gate" class="auth-gate" hidden>
+      <div class="auth-card">
+        <h2>Iniciá sesión en Plane</h2>
+        <p>
+          Solo usuarios logueados pueden crear tickets. Así evitamos spam
+          si alguien comparte la URL.
+        </p>
+        <form id="login-form" class="auth-form" novalidate>
+          <label class="field">
+            <span class="label">Email de Plane</span>
+            <input
+              id="login-email"
+              type="email"
+              autocomplete="username"
+              required
+              placeholder="tu@correo.com"
+            />
+          </label>
+          <label class="field">
+            <span class="label">Contraseña</span>
+            <input
+              id="login-password"
+              type="password"
+              autocomplete="current-password"
+              required
+              placeholder="••••••••"
+            />
+          </label>
+          <button type="submit" class="submit" id="login-btn">Entrar</button>
+          <p id="login-status" class="status" role="status"></p>
+        </form>
+        <p class="auth-hint">
+          Misma cuenta que en
+          Plane. Usa tu correo y contraseña habituales.
+        </p>
+      </div>
+    </div>
+
+    <div class="shell" id="app-shell" hidden>
+      <header class="hero">
+        <div class="hero-top">
+          <h1>Nuevo Ticket</h1>
+          <div class="user-bar" id="user-bar">
+            <span id="user-label"></span>
+            <button type="button" class="logout-btn" id="logout-btn">Salir</button>
+          </div>
+        </div>
+        <p>
+          Completá el formulario → el servidor analiza texto y capturas, crea el
+          ticket en Plane vía MCP y <strong>adjunta las imágenes al work item</strong>
+          (se ven en Attachments). Copia de respaldo en Floci (<code>s3://tickets</code>).
+        </p>
+      </header>
+
+      <section class="type-grid" role="radiogroup" aria-label="Tipo de ticket">
+        <button type="button" class="type-card is-selected" data-type="incidencia" aria-pressed="true">
+          <span class="type-icon" aria-hidden="true">!</span>
+          <strong>Reportar una incidencia</strong>
+          <span>Algo debería funcionar y no funciona.</span>
+        </button>
+        <button type="button" class="type-card" data-type="mejora" aria-pressed="false">
+          <span class="type-icon rocket" aria-hidden="true">↗</span>
+          <strong>Nueva función o mejora</strong>
+          <span>Algo que el sistema no hace hoy, o un cambio que ayudaría.</span>
+        </button>
+        <button type="button" class="type-card" data-type="cliente" aria-pressed="false">
+          <span class="type-icon person" aria-hidden="true">👤</span>
+          <strong>Problema de cliente</strong>
+          <span>Un cliente te reportó un problema — vos lo trasladás.</span>
+        </button>
+      </section>
+
+      <div class="layout">
+        <form id="ticket-form" class="form-panel" novalidate>
+          <label class="field">
+            <span class="label">Departamento / proyecto <em>*</em></span>
+            <div class="select-wrap">
+              <select id="project_id" name="project_id" required disabled>
+                <option value="">Cargando proyectos...</option>
+              </select>
+            </div>
+          </label>
+          <p id="projects-status" class="status" role="status"></p>
+          <button type="button" id="reload-projects" class="logout-btn">Actualizar proyectos</button>
+          <label class="field">
+            <span class="label">Título <em>*</em></span>
+            <input
+              id="titulo"
+              name="titulo"
+              type="text"
+              required
+              placeholder="Ej. El botón de imprimir factura no responde"
+              autocomplete="off"
+            />
+          </label>
+
+          <label class="field">
+            <span class="label">Prioridad <em>*</em></span>
+            <div class="select-wrap">
+              <select id="prioridad" name="prioridad" required>
+                <option value="baja">Baja</option>
+                <option value="media" selected>Media</option>
+                <option value="alta">Alta</option>
+                <option value="urgente">Urgente</option>
+              </select>
+            </div>
+          </label>
+
+          <label class="field">
+            <span class="label">Descripción <em>*</em></span>
+            <textarea
+              id="descripcion"
+              name="descripcion"
+              rows="5"
+              required
+              placeholder="Contá qué pasa, con el mayor detalle posible"
+            ></textarea>
+          </label>
+
+          <label class="field">
+            <span class="label">Módulo/pantalla afectada <em>*</em></span>
+            <input
+              id="modulo"
+              name="modulo"
+              type="text"
+              required
+              placeholder="Ej. Facturación, Casilleros, Manifiestos..."
+              autocomplete="off"
+            />
+          </label>
+
+          <label class="field">
+            <span class="label">Pasos para reproducir <em>*</em></span>
+            <textarea
+              id="pasos"
+              name="pasos"
+              rows="4"
+              required
+              placeholder="1. Ir a...&#10;2. Hacer clic en...&#10;3. ..."
+            ></textarea>
+          </label>
+
+          <div class="field">
+            <span class="label">Capturas</span>
+            <label class="dropzone" id="dropzone">
+              <input
+                id="capturas"
+                name="capturas"
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                hidden
+              />
+              <span class="clip" aria-hidden="true">📎</span>
+              <span>Agregar capturas (imagen o PDF, hasta 10MB c/u)</span>
+            </label>
+            <ul id="file-list" class="file-list"></ul>
+          </div>
+
+          <button type="submit" class="submit" id="submit-btn">
+            <span aria-hidden="true">✈</span>
+            Analizar y crear en Plane
+          </button>
+
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+        </form>
+
+        <aside class="side-panel" id="side-panel">
+          <div class="side-head">
+            <span class="type-icon" aria-hidden="true">!</span>
+            <strong id="side-title">Reportar una incidencia</strong>
+          </div>
+          <p class="side-kicker">Qué necesitás</p>
+          <ul id="side-checklist" class="checklist">
+            <li>Módulo o pantalla donde ocurrió</li>
+            <li>Pasos detallados para reproducirlo</li>
+            <li>Al menos una captura de pantalla</li>
+          </ul>
+        </aside>
+      </div>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

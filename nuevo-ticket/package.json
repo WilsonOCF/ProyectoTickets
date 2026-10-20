@@ -1,0 +1,26 @@
+{
+  "name": "nuevo-ticket",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Formulario Nuevo Ticket — login Plane, LLM/template, crea vía MCP + Floci",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1153.0",
+    "@cursor/sdk": "^1.0.38",
+    "cookie-session": "^2.1.1",
+    "dotenv": "^18.0.8",
+    "express": "^4.21.2",
+    "fetch-cookie": "^3.2.0",
+    "form-data": "^4.0.6",
+    "multer": "^2.4.0",
+    "open": "^10.1.0",
+    "tough-cookie": "^6.0.2"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
