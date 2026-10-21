@@ -1,4 +1,5 @@
 # PROJECT_CONTEXT — GeneradorDeTicketsIntegrado
+> **Producción (21 octubre 2026):** ver [AUDITORIA_DOKPLOY.md](./AUDITORIA_DOKPLOY.md) y el Compose raíz actualizado. Las instrucciones locales, puertos publicados y variables de este documento son históricas. No copiar `.env` local a producción.
 > Actualizacion: proyectos dinamicos implementados. GET /api/proyectos consulta Plane con la API key del servidor (requiere sesion). El formulario carga nombres y UUIDs al abrirse; POST /api/tickets valida project_id contra el workspace. El analisis local y LLM respetan la seleccion. No se requieren variables por proyecto. Las referencias al mapeo TI/VENTAS que siguen son historicas.
 
 
@@ -8,7 +9,7 @@
 **Complemento operativo corto:** `CONTEXTO_DESPLIEGUE.md`  
 **Histórico CSRF/local dev (Escritorio):** `plane-login-csrf-solucion.md`, `plane-ips-csrf-analisis-completo.md`
 
-> **Seguridad:** `.env` está en `.gitignore`. Este archivo describe secretos activos para continuidad de sesión de desarrollo; **no subir** `.env` ni commitear tokens en repos públicos.
+> **Seguridad:** el índice Git contiene `.env` y `.env.tmp`; ignorarlos no elimina versiones existentes. Ver la auditoría para retirar su seguimiento y rotar las credenciales antes de desplegar.
 
 ---
 
@@ -164,7 +165,7 @@ El contenedor **`plane-mcp` no almacena** la API key en variables de entorno: el
 **MCP (`lib/plane-mcp.js`):**
 
 ```http
-Authorization: Bearer plane_api_33d85633c48b472cb6fc8a830259dee5
+Authorization: Bearer plane_api_REDACTED_ROTATE_BEFORE_DEPLOY
 x-workspace-slug: wilsonws
 Content-Type: application/json
 Accept: application/json, text/event-stream
@@ -173,7 +174,7 @@ Accept: application/json, text/event-stream
 **Adjuntos Plane (`lib/plane-attachments.js`):**
 
 ```http
-X-Api-Key: plane_api_33d85633c48b472cb6fc8a830259dee5
+X-Api-Key: plane_api_REDACTED_ROTATE_BEFORE_DEPLOY
 ```
 
 Ruta: `POST /api/v1/workspaces/{slug}/projects/{projectId}/work-items/{id}/attachments/`
@@ -238,7 +239,7 @@ Mapeo en código: `nuevo-ticket/lib/config.js` → `PROJECTS.TI` / `PROJECTS.VEN
 | `PLANE_WEB_URL` | `http://localhost` | Enlaces `browse/TI-xxx` al usuario |
 | `PLANE_WORKSPACE_SLUG` | `wilsonws` | MCP + API paths |
 | `PLANE_MCP_URL` | `http://plane-mcp:8211/http/api-key/mcp` | Endpoint MCP |
-| `PLANE_MCP_API_KEY` | `plane_api_33d85633c48b472cb6fc8a830259dee5` | Token Wilson (MCP + attachments) |
+| `PLANE_MCP_API_KEY` | `plane_api_REDACTED_ROTATE_BEFORE_DEPLOY` | Token Wilson (MCP + attachments) |
 | `SESSION_SECRET` | (≥32 chars) | Firma cookie sesión |
 | `SESSION_COOKIE_SECURE` | `false` | HTTP local |
 | `TICKETS_PUBLIC_URL` | `http://localhost:5179` | Detección HTTPS cookies |

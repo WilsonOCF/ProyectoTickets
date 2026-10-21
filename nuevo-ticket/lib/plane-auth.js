@@ -1,6 +1,8 @@
 const { CookieJar } = require("tough-cookie");
 const fetchCookie = require("fetch-cookie").default;
-const { PLANE_API_URL } = require("./config");
+// Plane emite cookies Secure cuando sus orígenes son HTTPS. El CookieJar
+// debe recibirlas y devolverlas sobre HTTPS, también desde el contenedor.
+const { PLANE_WEB_URL: PLANE_API_URL } = require("./config");
 
 function createPlaneClient(serializedJar) {
   const jar = serializedJar

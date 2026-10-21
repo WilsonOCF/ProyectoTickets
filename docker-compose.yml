@@ -1,89 +1,82 @@
-# =============================================================================
-# Stack unificado: Plane (Community) + plane-mcp + Floci + Nuevo Ticket
-# Destino: Dokploy (Compose) / docker compose local
-#
-# Red interna: tickets-net
-# Comunicación servicio→servicio por nombre DNS de Compose (nunca localhost).
-#
-# Puertos públicos típicos (Dokploy suele mapear dominio → servicio):
-#   - proxy          :80/:443  → UI Plane (web/admin/space/api vía reverse proxy)
-#   - floci-tickets  :5179     → formulario Nuevo Ticket
-#   - plane-mcp      :8211     → MCP HTTP (opcional exponer; tickets lo usa por red interna)
-# =============================================================================
-
-name: generador-tickets-integrado
+# Producción Dokploy: Docker Compose (no Docker Stack).
+# TLS en Traefik; sin puertos publicados. Ver AUDITORIA_DOKPLOY.md.
+# Los digests fijan las imágenes inspeccionadas; validar arquitectura del VPS.
 
 x-db-env: &db-env
-  PGHOST: ${PGHOST:-plane-db}
-  PGDATABASE: ${PGDATABASE:-plane}
-  POSTGRES_USER: ${POSTGRES_USER:-plane}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-plane}
-  POSTGRES_DB: ${POSTGRES_DB:-plane}
-  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-  PGDATA: ${PGDATA:-/var/lib/postgresql/data}
+  PGHOST: plane-db
+  PGDATABASE: plane
+  POSTGRES_USER: plane
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required POSTGRES_PASSWORD (hex)}
+  POSTGRES_DB: plane
+  POSTGRES_PORT: "5432"
+  PGDATA: /var/lib/postgresql/data
 
 x-redis-env: &redis-env
-  REDIS_HOST: ${REDIS_HOST:-plane-redis}
-  REDIS_PORT: ${REDIS_PORT:-6379}
-  REDIS_URL: ${REDIS_URL:-redis://plane-redis:6379/}
+  REDIS_HOST: plane-redis
+  REDIS_PORT: "6379"
+  REDIS_URL: redis://plane-redis:6379/
 
 x-minio-env: &minio-env
-  MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-access-key}
-  MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-secret-key}
+  MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:?Required AWS_ACCESS_KEY_ID}
+  MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:?Required AWS_SECRET_ACCESS_KEY}
 
 x-aws-s3-env: &aws-s3-env
-  AWS_REGION: ${AWS_REGION:-}
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-access-key}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-secret-key}
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Required AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Required AWS_SECRET_ACCESS_KEY}
   AWS_S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://plane-minio:9000}
   AWS_S3_BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-uploads}
 
 x-proxy-env: &proxy-env
-  APP_DOMAIN: ${APP_DOMAIN:-localhost}
-  FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-5242880}
-  CERT_EMAIL: ${CERT_EMAIL:-}
-  CERT_ACME_CA: ${CERT_ACME_CA:-}
-  CERT_ACME_DNS: ${CERT_ACME_DNS:-}
-  LISTEN_HTTP_PORT: ${LISTEN_HTTP_PORT:-80}
-  LISTEN_HTTPS_PORT: ${LISTEN_HTTPS_PORT:-443}
+  APP_DOMAIN: ${PLANE_DOMAIN:?Required PLANE_DOMAIN}
+  FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-10485760}
   BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-uploads}
-  SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+  SITE_ADDRESS: ":80"
 
 x-mq-env: &mq-env
-  RABBITMQ_HOST: ${RABBITMQ_HOST:-plane-mq}
-  RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-  RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-plane}
-  RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-plane}
-  RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-plane}
-  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-plane}
+  RABBITMQ_HOST: plane-mq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_DEFAULT_USER: plane
+  RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Required RABBITMQ_PASSWORD (hex)}
+  RABBITMQ_DEFAULT_VHOST: plane
+  RABBITMQ_VHOST: plane
 
 x-live-env: &live-env
   API_BASE_URL: ${API_BASE_URL:-http://api:8000}
-  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:-change-me-live-secret}
+  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:?Required LIVE_SERVER_SECRET_KEY}
 
 x-app-env: &app-env
-  WEB_URL: ${WEB_URL:-http://localhost}
-  DEBUG: ${DEBUG:-0}
-  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
+  WEB_URL: https://${PLANE_DOMAIN:?Required PLANE_DOMAIN}
+  DEBUG: "0"
+  CORS_ALLOWED_ORIGINS: https://${PLANE_DOMAIN:?Required PLANE_DOMAIN},https://${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}
   GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
-  USE_MINIO: ${USE_MINIO:-1}
-  DATABASE_URL: ${DATABASE_URL:-postgresql://plane:plane@plane-db:5432/plane}
-  SECRET_KEY: ${SECRET_KEY:-change-this-key-on-deployment}
-  AMQP_URL: ${AMQP_URL:-amqp://plane:plane@plane-mq:5672/plane}
+  USE_MINIO: "1"
+  DATABASE_URL: postgresql://plane:${POSTGRES_PASSWORD:?Required POSTGRES_PASSWORD (hex)}@plane-db:5432/plane
+  SECRET_KEY: ${SECRET_KEY:?Required SECRET_KEY}
+  AMQP_URL: amqp://plane:${RABBITMQ_PASSWORD:?Required RABBITMQ_PASSWORD (hex)}@plane-mq:5672/plane
   API_KEY_RATE_LIMIT: ${API_KEY_RATE_LIMIT:-60/minute}
-  MINIO_ENDPOINT_SSL: ${MINIO_ENDPOINT_SSL:-0}
-  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:-change-me-live-secret}
+  MINIO_ENDPOINT_SSL: "0"
+  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:?Required LIVE_SERVER_SECRET_KEY}
   WEBHOOK_ALLOWED_IPS: ${WEBHOOK_ALLOWED_IPS:-}
   WEBHOOK_ALLOWED_HOSTS: ${WEBHOOK_ALLOWED_HOSTS:-}
+
+x-runtime: &runtime
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  labels:
+    traefik.enable: "false"
 
 services:
   # ---------------------------------------------------------------------------
   # Plane — datos
   # ---------------------------------------------------------------------------
   plane-db:
-    image: postgres:15.7-alpine
+    <<: *runtime
+    image: postgres@sha256:468d34fefd6338031787c7b8e94078975b3aaf4d66c7ead25c39cd3ba46a15c6
     restart: unless-stopped
-    command: postgres -c 'max_connections=1000'
     environment:
       <<: *db-env
     volumes:
@@ -91,14 +84,16 @@ services:
     networks:
       - tickets-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-plane} -d ${POSTGRES_DB:-plane}"]
+      test: ["CMD-SHELL", "pg_isready -U plane -d plane"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
 
   plane-redis:
-    image: valkey/valkey:7.2.11-alpine
+    <<: *runtime
+    image: valkey/valkey@sha256:10328d00120dc14fbc87b2ed61b7677ddbb0d011e705361b4788329a0ec69a93
+    command: valkey-server --appendonly yes
     restart: unless-stopped
     volumes:
       - redisdata:/data
@@ -111,7 +106,9 @@ services:
       retries: 10
 
   plane-mq:
-    image: rabbitmq:3.13.6-management-alpine
+    <<: *runtime
+    hostname: plane-mq
+    image: rabbitmq@sha256:611107e29cce05c2acd968325d5dcbde7e2fee404970f1ead75fdb22be2821b3
     restart: unless-stopped
     environment:
       <<: *mq-env
@@ -127,7 +124,8 @@ services:
       start_period: 30s
 
   plane-minio:
-    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+    <<: *runtime
+    image: pgsty/silo@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     restart: unless-stopped
     command: server /export --console-address ":9090"
     environment:
@@ -141,8 +139,9 @@ services:
   # Plane — aplicación (imágenes oficiales Community)
   # ---------------------------------------------------------------------------
   migrator:
-    image: makeplane/plane-backend:${APP_RELEASE:-stable}
-    restart: on-failure
+    <<: *runtime
+    image: makeplane/plane-backend@sha256:90032ce088708889b60c00d491897916f4deb882facda27db59fd10fb68729ef
+    restart: "no"
     command: ./bin/docker-entrypoint-migrator.sh
     volumes:
       - logs_migrator:/code/plane/logs
@@ -157,7 +156,8 @@ services:
       - tickets-net
 
   api:
-    image: makeplane/plane-backend:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-backend@sha256:90032ce088708889b60c00d491897916f4deb882facda27db59fd10fb68729ef
     restart: unless-stopped
     command: ./bin/docker-entrypoint-api.sh
     volumes:
@@ -175,6 +175,7 @@ services:
         condition: service_completed_successfully
     networks:
       - tickets-net
+      - egress
     expose:
       - "8000"
     healthcheck:
@@ -191,7 +192,8 @@ services:
       start_period: 60s
 
   worker:
-    image: makeplane/plane-backend:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-backend@sha256:90032ce088708889b60c00d491897916f4deb882facda27db59fd10fb68729ef
     restart: unless-stopped
     command: ./bin/docker-entrypoint-worker.sh
     volumes:
@@ -209,9 +211,11 @@ services:
         condition: service_healthy
     networks:
       - tickets-net
+      - egress
 
   beat-worker:
-    image: makeplane/plane-backend:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-backend@sha256:90032ce088708889b60c00d491897916f4deb882facda27db59fd10fb68729ef
     restart: unless-stopped
     command: ./bin/docker-entrypoint-beat.sh
     volumes:
@@ -229,9 +233,11 @@ services:
         condition: service_healthy
     networks:
       - tickets-net
+      - egress
 
   web:
-    image: makeplane/plane-frontend:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-frontend@sha256:22fd2434fb8d6658439f669ab72f999ce0773abe587663da21a77d70bd63ff61
     restart: unless-stopped
     depends_on:
       api:
@@ -242,7 +248,8 @@ services:
       - tickets-net
 
   space:
-    image: makeplane/plane-space:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-space@sha256:f8f842f05f41a16e9fe8c4f5e17a3bb175338ccdc094620e58ae49764ffbd671
     restart: unless-stopped
     depends_on:
       api:
@@ -253,7 +260,8 @@ services:
       - tickets-net
 
   admin:
-    image: makeplane/plane-admin:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-admin@sha256:6e1bb1d800d3c7ce84a09f810d5588db8613b35d4464e722a1bec12556ca0ebb
     restart: unless-stopped
     depends_on:
       api:
@@ -264,7 +272,8 @@ services:
       - tickets-net
 
   live:
-    image: makeplane/plane-live:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-live@sha256:cbb630ccaea24bb9998040cb45c11619a7501e8b6c75d449df2f8fd9b9cddbd0
     restart: unless-stopped
     environment:
       <<: [*live-env, *redis-env]
@@ -277,13 +286,11 @@ services:
       - tickets-net
 
   proxy:
-    image: makeplane/plane-proxy:${APP_RELEASE:-stable}
+    <<: *runtime
+    image: makeplane/plane-proxy@sha256:47e651c56749c287710cc26f82dc5d1046a2af76a332aa048ab7adb881cc4cd0
     restart: unless-stopped
     environment:
       <<: *proxy-env
-    ports:
-      - "${LISTEN_HTTP_PORT:-80}:80"
-      - "${LISTEN_HTTPS_PORT:-443}:443"
     volumes:
       - proxy_config:/config
       - proxy_data:/data
@@ -295,15 +302,29 @@ services:
       - live
     networks:
       - tickets-net
+      - dokploy-network
 
-  # ---------------------------------------------------------------------------
-  # plane-mcp — habla con la API de Plane por red interna
-  # ---------------------------------------------------------------------------
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.rule=Host(`${PLANE_DOMAIN:?Required PLANE_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.entrypoints=websecure"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.tls=true"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.service=${ROUTER_PREFIX:-crs-tickets}-proxy"
+      - "traefik.http.services.${ROUTER_PREFIX:-crs-tickets}-proxy.loadbalancer.server.port=80"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.rule=Host(`${PLANE_DOMAIN:?Required PLANE_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.entrypoints=web"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.service=${ROUTER_PREFIX:-crs-tickets}-proxy"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.middlewares=${ROUTER_PREFIX:-crs-tickets}-proxy-https"
+      - "traefik.http.middlewares.${ROUTER_PREFIX:-crs-tickets}-proxy-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.${ROUTER_PREFIX:-crs-tickets}-proxy-https.redirectscheme.permanent=true"
+
   plane-mcp:
+    <<: *runtime
     build:
       context: ./plane-mcp-server
       dockerfile: Dockerfile
-    image: ${PLANE_MCP_IMAGE:-generador-tickets/plane-mcp:local}
     restart: unless-stopped
     environment:
       HOST: "0.0.0.0"
@@ -317,8 +338,6 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - "${MCP_HOST_PORT:-8211}:8211"
     expose:
       - "8211"
     networks:
@@ -334,7 +353,8 @@ services:
   # Floci — S3 local persistente (adjuntos del formulario)
   # ---------------------------------------------------------------------------
   floci:
-    image: floci/floci:latest
+    <<: *runtime
+    image: floci/floci@sha256:e0b292df4dc9559b7b1bf4f51bdda4bb8e269276236438cd03cae661260ea8a9
     restart: unless-stopped
     environment:
       FLOCI_HOSTNAME: floci
@@ -352,20 +372,20 @@ services:
   # floci-tickets (Nuevo Ticket) — form + MCP + Floci + Plane
   # ---------------------------------------------------------------------------
   floci-tickets:
+    <<: *runtime
     build:
       context: ./nuevo-ticket
       dockerfile: Dockerfile
-    image: ${FLOCI_TICKETS_IMAGE:-generador-tickets/floci-tickets:local}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       HOST: "0.0.0.0"
       PORT: "5179"
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
-      # Interno: nombre DNS del servicio api en tickets-net
-      PLANE_API_URL: ${PLANE_API_URL:-http://api:8000}
+      # Proxy interno: enruta tanto /api como URLs firmadas /uploads
+      PLANE_API_URL: http://proxy:80
       # Público: URL que abre el usuario en el navegador (dominio Dokploy de Plane)
-      PLANE_WEB_URL: ${PLANE_WEB_URL:?Set PLANE_WEB_URL (public Plane URL)}
+      PLANE_WEB_URL: https://${PLANE_DOMAIN:?Required PLANE_DOMAIN}
       PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:?Set PLANE_WORKSPACE_SLUG}
       # Interno: MCP en la misma red
       PLANE_MCP_URL: ${PLANE_MCP_URL:-http://plane-mcp:8211/http/api-key/mcp}
@@ -378,27 +398,47 @@ services:
       AWS_SECRET_ACCESS_KEY: ${FLOCI_AWS_SECRET_ACCESS_KEY:-test}
       CURSOR_API_KEY: ${CURSOR_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-auto}
-      # HTTP local (:5179): debe ser false o el navegador no guarda nt_session
-      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
-      # Si el formulario se sirve por HTTPS en Dokploy, usar https://... y SESSION_COOKIE_SECURE=true
-      TICKETS_PUBLIC_URL: ${TICKETS_PUBLIC_URL:-http://localhost:5179}
+      SESSION_COOKIE_SECURE: "true"
+      TICKETS_PUBLIC_URL: https://${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}
     depends_on:
+      proxy:
+        condition: service_started
       api:
         condition: service_healthy
       plane-mcp:
         condition: service_healthy
       floci:
         condition: service_started
-    ports:
-      - "${TICKETS_HOST_PORT:-5179}:5179"
     expose:
       - "5179"
     networks:
       - tickets-net
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.rule=Host(`${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.entrypoints=websecure"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.tls=true"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.service=${ROUTER_PREFIX:-crs-tickets}-floci-tickets"
+      - "traefik.http.services.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.loadbalancer.server.port=5179"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.rule=Host(`${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.entrypoints=web"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.service=${ROUTER_PREFIX:-crs-tickets}-floci-tickets"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.middlewares=${ROUTER_PREFIX:-crs-tickets}-floci-tickets-https"
+      - "traefik.http.middlewares.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-https.redirectscheme.permanent=true"
 
 networks:
   tickets-net:
     driver: bridge
+    internal: true
+  egress:
+    driver: bridge
+  dokploy-network:
+    external: true
+    name: dokploy-network
 
 volumes:
   pgdata:
