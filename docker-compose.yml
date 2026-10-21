@@ -177,6 +177,7 @@ services:
     networks:
       - tickets-net
       - egress
+      - dokploy-network
     expose:
       - "8000"
     healthcheck:
@@ -247,6 +248,7 @@ services:
         condition: service_started
     networks:
       - tickets-net
+      - dokploy-network
 
   space:
     <<: *runtime
