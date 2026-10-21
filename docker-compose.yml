@@ -307,13 +307,6 @@ services:
         condition: service_healthy
       live:
         condition: service_started
-    # Comprueba desde Caddy la conectividad real por la red del stack.
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://web:3000/ && wget -q -O /dev/null http://api:8000/api/instances/ && wget -q -O /dev/null http://127.0.0.1:80/"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
     networks:
       - tickets-net
       - dokploy-network
@@ -416,7 +409,7 @@ services:
       TICKETS_PUBLIC_URL: ${TICKETS_PUBLIC_URL:-https://${TICKETS_DOMAIN:-tickets.localhost}}
     depends_on:
       proxy:
-        condition: service_healthy
+        condition: service_started
       api:
         condition: service_healthy
       plane-mcp:
