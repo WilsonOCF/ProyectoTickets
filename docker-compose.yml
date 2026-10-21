@@ -343,6 +343,7 @@ services:
 
   plane-mcp:
     <<: *runtime
+    labels: {traefik.enable: "true"}
     build:
       context: ./plane-mcp-server
       dockerfile: Dockerfile
