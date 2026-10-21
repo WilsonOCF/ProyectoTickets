@@ -46,7 +46,14 @@ x-live-env: &live-env
   API_BASE_URL: ${API_BASE_URL:-http://api:8000}
   LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:-local-dev-live-secret-change-in-production}
 
+x-auth-env: &auth-env
+  ENABLE_EMAIL_PASSWORD: "1"
+  ENABLE_SIGNUP: "1"
+
 x-app-env: &app-env
+  <<: *auth-env
+  # Plane conserva opciones existentes en InstanceConfiguration (God Mode).
+  # Estas variables inicializan instancias nuevas; no sobrescriben su base de datos.
   WEB_URL: ${WEB_URL:-https://${PLANE_DOMAIN:-localhost}}
   DEBUG: "0"
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://${PLANE_DOMAIN:-localhost},https://${TICKETS_DOMAIN:-tickets.localhost}}
@@ -241,6 +248,8 @@ services:
     <<: *runtime
     image: makeplane/plane-frontend@sha256:22fd2434fb8d6658439f669ab72f999ce0773abe587663da21a77d70bd63ff61
     restart: unless-stopped
+    environment:
+      <<: *auth-env
     depends_on:
       api:
         condition: service_healthy
@@ -266,6 +275,8 @@ services:
     <<: *runtime
     image: makeplane/plane-admin@sha256:6e1bb1d800d3c7ce84a09f810d5588db8613b35d4464e722a1bec12556ca0ebb
     restart: unless-stopped
+    environment:
+      <<: *auth-env
     depends_on:
       api:
         condition: service_healthy
@@ -273,6 +284,7 @@ services:
         condition: service_started
     networks:
       - tickets-net
+      - dokploy-network
 
   live:
     <<: *runtime
