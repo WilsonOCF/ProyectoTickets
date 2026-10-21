@@ -1,3 +1,4 @@
+# Entornos locales y copias con secretos; Compose puede leerlos aunque Git los ignore.
 .env
 .env.*
 !.env.example

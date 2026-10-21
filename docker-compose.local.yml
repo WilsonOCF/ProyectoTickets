@@ -1,0 +1,19 @@
+# Desarrollo local: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+# No seleccionar este override en Dokploy.
+services:
+  proxy:
+    ports:
+      - "127.0.0.1:3000:80"
+  floci-tickets:
+    ports:
+      - "127.0.0.1:5179:5179"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      PLANE_WEB_URL: http://host.docker.internal:3000
+
+networks:
+  dokploy-network:
+    external: false
+    name: ${COMPOSE_PROJECT_NAME:-generador-tickets-integrado}-local-edge
+    driver: bridge

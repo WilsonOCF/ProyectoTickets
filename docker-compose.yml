@@ -1,12 +1,13 @@
 # Producción Dokploy: Docker Compose (no Docker Stack).
 # TLS en Traefik; sin puertos publicados. Ver AUDITORIA_DOKPLOY.md.
+# Defaults de secretos SOLO para desarrollo; configurar valores propios en Dokploy.
 # Los digests fijan las imágenes inspeccionadas; validar arquitectura del VPS.
 
 x-db-env: &db-env
   PGHOST: plane-db
   PGDATABASE: plane
   POSTGRES_USER: plane
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required POSTGRES_PASSWORD (hex)}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-plane-local-dev}
   POSTGRES_DB: plane
   POSTGRES_PORT: "5432"
   PGDATA: /var/lib/postgresql/data
@@ -17,18 +18,18 @@ x-redis-env: &redis-env
   REDIS_URL: redis://plane-redis:6379/
 
 x-minio-env: &minio-env
-  MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:?Required AWS_ACCESS_KEY_ID}
-  MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:?Required AWS_SECRET_ACCESS_KEY}
+  MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-plane-storage}
+  MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-plane-storage-local-dev}
 
 x-aws-s3-env: &aws-s3-env
   AWS_REGION: ${AWS_REGION:-us-east-1}
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Required AWS_ACCESS_KEY_ID}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Required AWS_SECRET_ACCESS_KEY}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-plane-storage}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-plane-storage-local-dev}
   AWS_S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://plane-minio:9000}
   AWS_S3_BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-uploads}
 
 x-proxy-env: &proxy-env
-  APP_DOMAIN: ${PLANE_DOMAIN:?Required PLANE_DOMAIN}
+  APP_DOMAIN: ${PLANE_DOMAIN:-localhost}
   FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-10485760}
   BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-uploads}
   SITE_ADDRESS: ":80"
@@ -37,26 +38,26 @@ x-mq-env: &mq-env
   RABBITMQ_HOST: plane-mq
   RABBITMQ_PORT: "5672"
   RABBITMQ_DEFAULT_USER: plane
-  RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Required RABBITMQ_PASSWORD (hex)}
+  RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-plane-local-dev}
   RABBITMQ_DEFAULT_VHOST: plane
   RABBITMQ_VHOST: plane
 
 x-live-env: &live-env
   API_BASE_URL: ${API_BASE_URL:-http://api:8000}
-  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:?Required LIVE_SERVER_SECRET_KEY}
+  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:-local-dev-live-secret-change-in-production}
 
 x-app-env: &app-env
-  WEB_URL: https://${PLANE_DOMAIN:?Required PLANE_DOMAIN}
+  WEB_URL: ${WEB_URL:-https://${PLANE_DOMAIN:-localhost}}
   DEBUG: "0"
-  CORS_ALLOWED_ORIGINS: https://${PLANE_DOMAIN:?Required PLANE_DOMAIN},https://${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://${PLANE_DOMAIN:-localhost},https://${TICKETS_DOMAIN:-tickets.localhost}}
   GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
   USE_MINIO: "1"
-  DATABASE_URL: postgresql://plane:${POSTGRES_PASSWORD:?Required POSTGRES_PASSWORD (hex)}@plane-db:5432/plane
-  SECRET_KEY: ${SECRET_KEY:?Required SECRET_KEY}
-  AMQP_URL: amqp://plane:${RABBITMQ_PASSWORD:?Required RABBITMQ_PASSWORD (hex)}@plane-mq:5672/plane
+  DATABASE_URL: postgresql://plane:${POSTGRES_PASSWORD:-plane-local-dev}@plane-db:5432/plane
+  SECRET_KEY: ${SECRET_KEY:-local-dev-django-secret-change-in-production}
+  AMQP_URL: amqp://plane:${RABBITMQ_PASSWORD:-plane-local-dev}@plane-mq:5672/plane
   API_KEY_RATE_LIMIT: ${API_KEY_RATE_LIMIT:-60/minute}
   MINIO_ENDPOINT_SSL: "0"
-  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:?Required LIVE_SERVER_SECRET_KEY}
+  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY:-local-dev-live-secret-change-in-production}
   WEBHOOK_ALLOWED_IPS: ${WEBHOOK_ALLOWED_IPS:-}
   WEBHOOK_ALLOWED_HOSTS: ${WEBHOOK_ALLOWED_HOSTS:-}
 
@@ -294,12 +295,25 @@ services:
     volumes:
       - proxy_config:/config
       - proxy_data:/data
+    # Las imagenes fijadas de web/space/admin incluyen healthcheck HTTP en :3000.
     depends_on:
-      - web
-      - api
-      - space
-      - admin
-      - live
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      space:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+      live:
+        condition: service_started
+    # Comprueba desde Caddy la conectividad real por la red del stack.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://web:3000/ && wget -q -O /dev/null http://api:8000/api/instances/ && wget -q -O /dev/null http://127.0.0.1:80/"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
     networks:
       - tickets-net
       - dokploy-network
@@ -307,13 +321,13 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.rule=Host(`${PLANE_DOMAIN:?Required PLANE_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.rule=Host(`${PLANE_DOMAIN:-localhost}`)"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.entrypoints=websecure"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.tls=true"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.tls.certresolver=letsencrypt"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy.service=${ROUTER_PREFIX:-crs-tickets}-proxy"
       - "traefik.http.services.${ROUTER_PREFIX:-crs-tickets}-proxy.loadbalancer.server.port=80"
-      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.rule=Host(`${PLANE_DOMAIN:?Required PLANE_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.rule=Host(`${PLANE_DOMAIN:-localhost}`)"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.entrypoints=web"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.service=${ROUTER_PREFIX:-crs-tickets}-proxy"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-proxy-http.middlewares=${ROUTER_PREFIX:-crs-tickets}-proxy-https"
@@ -381,15 +395,15 @@ services:
       NODE_ENV: production
       HOST: "0.0.0.0"
       PORT: "5179"
-      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      SESSION_SECRET: ${SESSION_SECRET:-local-dev-session-secret-change-in-production}
       # Proxy interno: enruta tanto /api como URLs firmadas /uploads
       PLANE_API_URL: http://proxy:80
       # Público: URL que abre el usuario en el navegador (dominio Dokploy de Plane)
-      PLANE_WEB_URL: https://${PLANE_DOMAIN:?Required PLANE_DOMAIN}
-      PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:?Set PLANE_WORKSPACE_SLUG}
+      PLANE_WEB_URL: ${PLANE_WEB_URL:-https://${PLANE_DOMAIN:-localhost}}
+      PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:-crs}
       # Interno: MCP en la misma red
       PLANE_MCP_URL: ${PLANE_MCP_URL:-http://plane-mcp:8211/http/api-key/mcp}
-      PLANE_MCP_API_KEY: ${PLANE_MCP_API_KEY:?Set PLANE_MCP_API_KEY}
+      PLANE_MCP_API_KEY: ${PLANE_MCP_API_KEY:-BOOTSTRAP_NOT_A_REAL_TOKEN}
       # Interno: Floci (forzado; no uses localhost)
       FLOCI_ENDPOINT: http://floci:4566
       FLOCI_BUCKET: ${FLOCI_BUCKET:-tickets}
@@ -398,11 +412,11 @@ services:
       AWS_SECRET_ACCESS_KEY: ${FLOCI_AWS_SECRET_ACCESS_KEY:-test}
       CURSOR_API_KEY: ${CURSOR_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-auto}
-      SESSION_COOKIE_SECURE: "true"
-      TICKETS_PUBLIC_URL: https://${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      TICKETS_PUBLIC_URL: ${TICKETS_PUBLIC_URL:-https://${TICKETS_DOMAIN:-tickets.localhost}}
     depends_on:
       proxy:
-        condition: service_started
+        condition: service_healthy
       api:
         condition: service_healthy
       plane-mcp:
@@ -417,13 +431,13 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.rule=Host(`${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.rule=Host(`${TICKETS_DOMAIN:-tickets.localhost}`)"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.entrypoints=websecure"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.tls=true"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.tls.certresolver=letsencrypt"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.service=${ROUTER_PREFIX:-crs-tickets}-floci-tickets"
       - "traefik.http.services.${ROUTER_PREFIX:-crs-tickets}-floci-tickets.loadbalancer.server.port=5179"
-      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.rule=Host(`${TICKETS_DOMAIN:?Required TICKETS_DOMAIN}`)"
+      - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.rule=Host(`${TICKETS_DOMAIN:-tickets.localhost}`)"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.entrypoints=web"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.service=${ROUTER_PREFIX:-crs-tickets}-floci-tickets"
       - "traefik.http.routers.${ROUTER_PREFIX:-crs-tickets}-floci-tickets-http.middlewares=${ROUTER_PREFIX:-crs-tickets}-floci-tickets-https"
