@@ -1,3 +1,5 @@
+> **Actualización 22/10/2026:** registro/login propios y autoría automática en Plane: ver [PORTAL_USUARIOS.md](./PORTAL_USUARIOS.md). Las secciones anteriores de autenticación con Plane son históricas.
+
 # Auditoría de despliegue Dokploy — 21 octubre 2026
 
 El Compose anterior no estaba preparado para este despliegue. El archivo raíz se corrigió, junto con los dos Dockerfiles, las dependencias Python del formulario y su login. La configuración valida y ambos builds completaron en Docker Linux/amd64. Todavía no se ha desplegado ni probado el flujo completo en `infra.crs-logistics.com`; no se ha accedido a su API ni verificado su configuración real.

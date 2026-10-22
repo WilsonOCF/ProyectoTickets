@@ -30,6 +30,7 @@ async function attachFilesToWorkItem(projectId, workitemId, files) {
       // 1) pedir URL firmada
       const createRes = await fetch(base, {
         method: "POST",
+        signal: AbortSignal.timeout(20000),
         headers: apiHeaders(true),
         body: JSON.stringify({ name, type, size }),
       });
@@ -67,6 +68,7 @@ async function attachFilesToWorkItem(projectId, workitemId, files) {
 
       const s3Res = await fetch(uploadData.url, {
         method: "POST",
+        signal: AbortSignal.timeout(60000),
         body: s3Form,
       });
       if (!s3Res.ok) {
@@ -82,6 +84,7 @@ async function attachFilesToWorkItem(projectId, workitemId, files) {
       // 3) confirmar
       const confirmRes = await fetch(`${base}${assetId}/`, {
         method: "PATCH",
+        signal: AbortSignal.timeout(20000),
         headers: apiHeaders(true),
         body: JSON.stringify({ is_uploaded: true }),
       });

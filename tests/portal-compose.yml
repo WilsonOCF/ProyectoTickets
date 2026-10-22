@@ -1,0 +1,37 @@
+# Isolated verification stack. Use only with project tickets-portal-check.
+services:
+  api:
+    environment:
+      WEB_URL: http://localhost:13079
+      CORS_ALLOWED_ORIGINS: http://localhost:13079
+  proxy:
+    ports:
+      - "127.0.0.1:13079:80"
+    depends_on: !override
+      api:
+        condition: service_healthy
+    labels: !override
+      traefik.enable: "false"
+  floci-tickets:
+    image: tickets-portal-check-floci-tickets
+    environment:
+      SESSION_COOKIE_SECURE: "false"
+      CURSOR_API_KEY: ""
+    depends_on: !override
+      proxy:
+        condition: service_started
+      plane-ticket-bridge:
+        condition: service_healthy
+      floci:
+        condition: service_started
+    ports:
+      - "127.0.0.1:15179:5179"
+    labels: !override
+      traefik.enable: "false"
+  plane-ticket-bridge:
+    image: tickets-portal-check-plane-ticket-bridge
+networks:
+  dokploy-network:
+    external: false
+    name: tickets-portal-check-edge
+    driver: bridge

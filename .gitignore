@@ -6,3 +6,8 @@
 .env.*.local
 *.log
 .DS_Store
+nuevo-ticket/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+__pycache__/

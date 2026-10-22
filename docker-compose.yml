@@ -372,6 +372,29 @@ services:
       retries: 5
 
   # ---------------------------------------------------------------------------
+  # Integración privada: identidades y autoría del portal, misma versión que API.
+  # Sin puertos publicados ni acceso desde Traefik.
+  plane-ticket-bridge:
+    <<: *runtime
+    build:
+      context: ./plane-ticket-bridge
+    restart: unless-stopped
+    environment:
+      <<: [*app-env, *db-env, *redis-env, *minio-env, *aws-s3-env, *proxy-env]
+      PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:-crs}
+      TICKETS_BRIDGE_SECRET: ${TICKETS_BRIDGE_SECRET:-${SESSION_SECRET:-local-dev-session-secret-change-in-production}}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - tickets-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8220/healthz', timeout=5)"]
+      interval: 20s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
   # Floci — S3 local persistente (adjuntos del formulario)
   # ---------------------------------------------------------------------------
   floci:
@@ -404,6 +427,10 @@ services:
       HOST: "0.0.0.0"
       PORT: "5179"
       SESSION_SECRET: ${SESSION_SECRET:-local-dev-session-secret-change-in-production}
+      TICKETS_DATABASE_PATH: /app/data/portal.sqlite
+      TICKETS_REGISTRATION_ENABLED: ${TICKETS_REGISTRATION_ENABLED:-true}
+      PLANE_BRIDGE_URL: http://plane-ticket-bridge:8220
+      TICKETS_BRIDGE_SECRET: ${TICKETS_BRIDGE_SECRET:-${SESSION_SECRET:-local-dev-session-secret-change-in-production}}
       # Proxy interno: enruta tanto /api como URLs firmadas /uploads
       PLANE_API_URL: http://proxy:80
       # Público: URL que abre el usuario en el navegador (dominio Dokploy de Plane)
@@ -429,10 +456,14 @@ services:
         condition: service_healthy
       plane-mcp:
         condition: service_healthy
+      plane-ticket-bridge:
+        condition: service_healthy
       floci:
         condition: service_started
     expose:
       - "5179"
+    volumes:
+      - tickets-users:/app/data
     networks:
       - tickets-net
       - dokploy-network
@@ -463,6 +494,7 @@ networks:
     name: dokploy-network
 
 volumes:
+  tickets-users:
   pgdata:
   redisdata:
   rabbitmq_data:

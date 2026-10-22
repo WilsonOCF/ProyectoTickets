@@ -2,6 +2,12 @@ require("dotenv").config({ quiet: true });
 const production = process.env.NODE_ENV === "production";
 const CURSOR_API_KEY = process.env.CURSOR_API_KEY || process.env.LLM_API_KEY || "";
 const model = String(process.env.LLM_MODEL || process.env.CURSOR_MODEL || "auto").trim();
+const sessionSecret = process.env.SESSION_SECRET || "nuevo-ticket-dev-secret-change-me";
+const bridgeSecret = process.env.TICKETS_BRIDGE_SECRET || sessionSecret;
+const bridgeUrl = process.env.PLANE_BRIDGE_URL || "http://plane-ticket-bridge:8220";
+const parsedBridgeUrl = new URL(bridgeUrl);
+if (!["http:", "https:"].includes(parsedBridgeUrl.protocol) || parsedBridgeUrl.username || parsedBridgeUrl.password) throw new Error("PLANE_BRIDGE_URL debe ser HTTP(S) sin credenciales.");
+if (production && bridgeSecret.length < 32) throw new Error("TICKETS_BRIDGE_SECRET debe tener al menos 32 caracteres.");
 if (production) {
   const required = ["SESSION_SECRET", "PLANE_API_URL", "PLANE_WEB_URL", "PLANE_WORKSPACE_SLUG", "PLANE_MCP_URL", "PLANE_MCP_API_KEY", "FLOCI_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
   const missing = required.filter(key => !process.env[key]?.trim());
@@ -31,7 +37,11 @@ function sessionCookieSecure() {
 module.exports = {
   PORT: Number(process.env.PORT || 5179),
   HOST: process.env.HOST || (production ? "0.0.0.0" : "127.0.0.1"),
-  SESSION_SECRET: process.env.SESSION_SECRET || "nuevo-ticket-dev-secret-change-me",
+  SESSION_SECRET: sessionSecret,
+  TICKETS_DATABASE_PATH: process.env.TICKETS_DATABASE_PATH || require("path").join(__dirname, "../data/portal.sqlite"),
+  TICKETS_REGISTRATION_ENABLED: process.env.TICKETS_REGISTRATION_ENABLED !== "false",
+  PLANE_BRIDGE_URL: bridgeUrl.replace(/\/$/, ""),
+  PLANE_BRIDGE_SECRET: bridgeSecret,
   PLANE_API_URL: (process.env.PLANE_API_URL || "http://localhost:3000").replace(/\/$/, ""),
   PLANE_WEB_URL: (process.env.PLANE_WEB_URL || "http://localhost:3000").replace(/\/$/, ""),
   PLANE_WORKSPACE_SLUG: process.env.PLANE_WORKSPACE_SLUG || "",

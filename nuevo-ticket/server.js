@@ -10,10 +10,11 @@ const {
 } = require("@aws-sdk/client-s3");
 
 const config = require("./lib/config");
-const { loginWithPassword } = require("./lib/plane-auth");
+const { PortalStore, digest } = require("./lib/portal-store");
+const { installPortalAuth, requireAuth } = require("./lib/portal-auth");
 const { listProjects } = require("./lib/plane-projects");
 const { analyzeTicket } = require("./lib/llm");
-const { createWorkItemViaMcp } = require("./lib/plane-mcp");
+const { createPortalWorkItem } = require("./lib/plane-bridge");
 const { attachFilesToWorkItem } = require("./lib/plane-attachments");
 
 const {
@@ -41,11 +42,13 @@ const s3 = new S3Client({
 });
 
 const app = express();
+const portalStore = new PortalStore(config.TICKETS_DATABASE_PATH);
+const inFlight = new Set();
 const production = process.env.NODE_ENV === "production";
 if (production) app.set("trust proxy", 1);
 app.use(
   cookieSession({
-    name: "nt_session",
+    name: "nt_portal_session",
     keys: [SESSION_SECRET],
     maxAge: 12 * 60 * 60 * 1000,
     httpOnly: true,
@@ -54,6 +57,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: "1mb" }));
+installPortalAuth(app, portalStore, { registrationEnabled: config.TICKETS_REGISTRATION_ENABLED });
 app.use(express.static(path.join(__dirname, "public")));
 
 function slugify(text) {
@@ -119,16 +123,6 @@ const upload = multer({
   },
 });
 
-function requireAuth(req, res, next) {
-  if (!req.session?.user?.id) {
-    return res.status(401).json({
-      error: "Tenés que iniciar sesión en Plane para crear tickets.",
-      code: "AUTH_REQUIRED",
-    });
-  }
-  next();
-}
-
 app.get("/api/health", async (_req, res) => {
   try {
     await s3.send(new HeadBucketCommand({ Bucket: BUCKET }), {
@@ -154,13 +148,6 @@ app.get("/api/health", async (_req, res) => {
 // Comprueba el proceso sin depender de servicios externos.
 app.get("/api/live", (_req, res) => res.json({ ok: true }));
 
-app.get("/api/me", (req, res) => {
-  if (!req.session?.user?.id) {
-    return res.status(401).json({ authenticated: false });
-  }
-  res.json({ authenticated: true, user: req.session.user });
-});
-
 app.get("/api/proyectos", requireAuth, async (_req, res) => {
   res.set("Cache-Control", "no-store");
   try { res.json(await listProjects()); }
@@ -170,42 +157,44 @@ app.get("/api/proyectos", requireAuth, async (_req, res) => {
   }
 });
 
-app.post("/api/auth/login", async (req, res) => {
-  try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email y contraseña son obligatorios." });
-    }
-    // Valida contra Plane (email/password). Si falla, nadie puede spamear tickets.
-    const { user } = await loginWithPassword(email, password);
-    req.session.user = user;
-    res.json({ ok: true, user });
-  } catch (err) {
-    console.error("login:", err.message);
-    res.status(401).json({ error: err.message || "No se pudo iniciar sesión" });
+app.post("/api/tickets", requireAuth, (req, res, next) => {
+  if (!portalStore.allowAttempt(`tickets:${req.portalUser.id}`, 10, 60000)) {
+    res.set("Retry-After", "60");
+    return res.status(429).json({ error: "Has enviado varias solicitudes. Espera un minuto antes de reintentar." });
   }
-});
-
-app.post("/api/auth/logout", (req, res) => {
-  req.session = null;
-  res.json({ ok: true });
-});
-
-app.post("/api/tickets", requireAuth, upload.array("capturas", 10), async (req, res) => {
+  next();
+}, upload.array("capturas", 10), async (req, res) => {
+  let flightKey;
   try {
     if (!PLANE_MCP_API_KEY) {
       return res.status(503).json({
         error:
-          "Falta PLANE_MCP_API_KEY en .env. Sin eso no se puede crear el ticket en Plane vía MCP.",
+          "El servicio de soporte todavía no está configurado. Contacta al administrador.",
       });
     }
 
-    const { project_id, tipo, tipoLabel, titulo, prioridad, descripcion, modulo, pasos } =
+    const { project_id, tipo, titulo, prioridad, descripcion, modulo, pasos } =
       req.body;
 
-    if (!tipo || !titulo || !prioridad || !descripcion || !modulo || !pasos) {
+    if (![tipo, titulo, prioridad, descripcion, modulo, pasos].every(value => typeof value === "string" && value.trim() && value.length <= 20000)
+        || titulo.length > 255 || !["incidencia", "mejora", "cliente"].includes(tipo)
+        || !["baja", "media", "alta", "urgente"].includes(prioridad)) {
       return res.status(400).json({ error: "Faltan campos obligatorios." });
     }
+
+    const requestId = req.get("Idempotency-Key");
+    if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId || "")) {
+      return res.status(400).json({ error: "Falta el identificador del envío. Recarga la página." });
+    }
+    const reporter = req.portalUser;
+    const fingerprint = digest(JSON.stringify({ project_id, tipo, titulo, prioridad, descripcion, modulo, pasos,
+      files: (req.files || []).map(file => [file.originalname, file.mimetype, digest(file.buffer)]) }));
+    const submission = portalStore.submission(reporter.id, requestId, fingerprint);
+    if (submission.result) return res.json(submission.result);
+    const key = `${reporter.id}:${requestId}`;
+    if (inFlight.has(key)) return res.status(409).json({ error: "Este envío sigue procesándose. Espera antes de reintentar." });
+    flightKey = key;
+    inFlight.add(key);
 
     if (typeof project_id !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(project_id)) {
       return res.status(400).json({ error: "Selecciona un proyecto válido." });
@@ -220,15 +209,14 @@ app.post("/api/tickets", requireAuth, upload.array("capturas", 10), async (req, 
     if (!project) return res.status(400).json({ error: "El proyecto seleccionado ya no está disponible en este workspace." });
     await ensureBucket();
 
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const folderName = `${stamp}_${slugify(titulo)}`;
+    const folderName = `${reporter.id}/${requestId}_${slugify(titulo)}`;
     const prefix = `${folderName}/`;
 
     const savedFiles = [];
     const filesForLlm = [];
-    for (const file of req.files || []) {
+    for (const [index, file] of (req.files || []).entries()) {
       const safe = file.originalname.replace(/[<>:"/\\|?*]/g, "_");
-      const key = `${prefix}capturas/${safe}`;
+      const key = `${prefix}capturas/${index}_${safe}`;
       await putFile(key, file.buffer, file.mimetype);
       const meta = {
         nombre: safe,
@@ -246,7 +234,7 @@ app.post("/api/tickets", requireAuth, upload.array("capturas", 10), async (req, 
       project_id,
       project,
       tipo,
-      tipoLabel,
+      tipoLabel: { incidencia: "Incidencia", mejora: "Mejora", cliente: "Problema de cliente" }[tipo],
       titulo: String(titulo).trim(),
       prioridad,
       descripcion: String(descripcion).trim(),
@@ -254,9 +242,9 @@ app.post("/api/tickets", requireAuth, upload.array("capturas", 10), async (req, 
       pasos: String(pasos).trim(),
     };
 
-    const reporter = req.session.user;
-    const template = await analyzeTicket(form, filesForLlm, reporter);
-    const planeIssue = await createWorkItemViaMcp(template);
+    const template = submission.template || await analyzeTicket(form, filesForLlm);
+    portalStore.saveTemplate(reporter.id, requestId, template);
+    const planeIssue = await createPortalWorkItem(template, reporter, requestId, fingerprint);
 
     // Attachments en el work item (lo que pidió el jefe: ver la imagen en Plane).
     // Floci S3 queda como backup/copia; lo importante para TI es el attach.
@@ -289,13 +277,6 @@ app.post("/api/tickets", requireAuth, upload.array("capturas", 10), async (req, 
       },
     };
 
-    await putJson(`${prefix}ticket.json`, ticket);
-    await putText(
-      `${prefix}template.html`,
-      template.description_html,
-      "text/html; charset=utf-8"
-    );
-
     const md = [
       `# ${planeIssue.identifier}: ${template.name}`,
       "",
@@ -309,22 +290,35 @@ app.post("/api/tickets", requireAuth, upload.array("capturas", 10), async (req, 
       template.summary || "",
       "",
     ].join("\n");
-    await putText(`${prefix}ticket.md`, md);
-
-    res.json({
+    const warnings = planeAttachments.some(item => !item.ok)
+      ? ["El ticket fue creado, pero algunos adjuntos no pudieron cargarse."] : [];
+    const result = {
       ok: true,
-      ticket,
-      plane: planeIssue,
+      plane: { id: planeIssue.id, identifier: planeIssue.identifier },
       analysis: ticket.analysis,
-      message: `Ticket ${planeIssue.identifier} creado en Plane`,
-    });
+      warnings,
+      message: `Ticket ${planeIssue.identifier} creado`,
+    };
+    // Persist success before backups: a failed S3 write must not duplicate a work item.
+    portalStore.finishSubmission(reporter.id, requestId, result, planeIssue.created_by);
+    try {
+      await putJson(`${prefix}ticket.json`, ticket);
+      await putText(`${prefix}template.html`, template.description_html, "text/html; charset=utf-8");
+      await putText(`${prefix}ticket.md`, md);
+    } catch (error) {
+      console.error("ticket backup:", error.name);
+      result.warnings.push("El ticket fue creado, pero su copia de respaldo está pendiente.");
+      portalStore.finishSubmission(reporter.id, requestId, result, planeIssue.created_by);
+    }
+    res.json(result);
   } catch (err) {
-    console.error(err);
-    const hint = /ECONNREFUSED|connect/i.test(err.message || "")
-      ? " Revisá Floci (4566) y el MCP Plane (8211)."
-      : "";
-    res.status(500).json({ error: (err.message || "Error al crear ticket") + hint });
-  }
+    console.error("ticket failed:", err.status || err.name);
+    res.status(err.status || 502).json({ error: err.status ? err.message : "No se pudo confirmar el envío. Puedes reintentar; conservaremos el mismo identificador." });
+  } finally { if (flightKey) inFlight.delete(flightKey); }
+});
+
+app.use((error, _req, res, _next) => {
+  res.status(400).json({ error: error instanceof multer.MulterError ? "Revisa los adjuntos: máximo 10 archivos de 10 MB." : "La solicitud no es válida." });
 });
 
 app.listen(PORT, config.HOST, async () => {

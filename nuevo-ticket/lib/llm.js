@@ -38,7 +38,7 @@ function paragraphs(text) {
     .join("");
 }
 
-function buildLocalTemplate(form, files, reporter) {
+function buildLocalTemplate(form, files) {
   const project = form.project;
   const priority = PRIORITY_MAP[form.prioridad] || "medium";
   const fileLines = (files || [])
@@ -52,7 +52,6 @@ function buildLocalTemplate(form, files, reporter) {
     `<h2>${escapeHtml(form.titulo)}</h2>`,
     `<p><strong>Tipo:</strong> ${escapeHtml(form.tipoLabel || form.tipo)}</p>`,
     `<p><strong>Módulo/pantalla:</strong> ${escapeHtml(form.modulo)}</p>`,
-    `<p><strong>Reportado por:</strong> ${escapeHtml(reporter.display_name)} (${escapeHtml(reporter.email)})</p>`,
     `<h3>Descripción</h3>`,
     paragraphs(form.descripcion),
     `<h3>Pasos para reproducir</h3>`,
@@ -85,7 +84,7 @@ function extractJson(text) {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
-function buildPrompt(form, files, reporter) {
+function buildPrompt(form, files) {
   return [
     "Sos un analista de soporte. Convertí este reporte en un ticket de Plane.",
     "Respondé SOLO con un JSON válido (sin markdown) con esta forma:",
@@ -95,14 +94,14 @@ function buildPrompt(form, files, reporter) {
     '  "summary": "1-2 oraciones del análisis",',
     '  "description_html": "HTML limpio con h2/h3/p/ul/li/code"',
     "}",
-    `Proyecto elegido: ${form.project.name}. Incluye quien reporta.`,
+    `Proyecto elegido: ${form.project.name}.`,
+    "No agregues datos del autor ni una sección 'Reportado por': la autoría se guarda por separado.",
     "Si hay capturas, describí qué se ve. Español, profesional, sin scripts.",
     "",
     `Tipo: ${form.tipoLabel || form.tipo}`,
     `Título sugerido: ${form.titulo}`,
     `Prioridad del usuario: ${form.prioridad}`,
     `Módulo: ${form.modulo}`,
-    `Reportado por: ${reporter.display_name} <${reporter.email}>`,
     "",
     "Descripción:",
     form.descripcion,
@@ -152,8 +151,8 @@ function runCursorPython(payload) {
  * Analiza con Cursor Python SDK (docs: https://cursor.com/docs/sdk/python).
  * Sin API key o si falla → plantilla local.
  */
-async function analyzeTicket(form, files, reporter) {
-  const fallback = buildLocalTemplate(form, files, reporter);
+async function analyzeTicket(form, files) {
+  const fallback = buildLocalTemplate(form, files);
 
   if (!CURSOR_API_KEY) {
     return fallback;
@@ -173,7 +172,7 @@ async function analyzeTicket(form, files, reporter) {
       api_key: CURSOR_API_KEY,
       model: LLM_MODEL,
       cwd: ROOT,
-      prompt: buildPrompt(form, files, reporter),
+      prompt: buildPrompt(form, files),
       images,
     });
 
@@ -195,8 +194,6 @@ async function analyzeTicket(form, files, reporter) {
     let description_html = String(parsed.description_html || "").trim();
     if (!description_html) {
       description_html = fallback.description_html;
-    } else if (!description_html.includes(reporter.email)) {
-      description_html += `<p><strong>Reportado por:</strong> ${escapeHtml(reporter.display_name)} (${escapeHtml(reporter.email)})</p>`;
     }
 
     return {

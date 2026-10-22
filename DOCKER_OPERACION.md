@@ -1,3 +1,5 @@
+> **Actualización 22/10/2026:** registro/login propios y autoría automática en Plane: ver [PORTAL_USUARIOS.md](./PORTAL_USUARIOS.md). Las secciones anteriores de autenticación con Plane son históricas.
+
 # Local y Dokploy
 
 ## Local

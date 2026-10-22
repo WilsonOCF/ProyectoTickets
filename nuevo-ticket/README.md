@@ -1,7 +1,12 @@
 # Nuevo Ticket
 
-Formulario web para iniciar sesión con Plane, enviar incidencias, mejoras o
-problemas de clientes y crear tickets en los proyectos TI o Ventas.
+Formulario web con registro e inicio de sesión propios para enviar incidencias,
+mejoras o problemas de clientes a los proyectos disponibles en Plane.
+
+**Flujo vigente:** [PORTAL_USUARIOS.md](../PORTAL_USUARIOS.md). Al enviar el primer
+ticket se crea automáticamente la identidad de Plane y sus membresías. El work
+item conserva a esa persona como autora en Created By. La contraseña del portal
+no se copia a Plane. Los usuarios del portal persisten en el volumen `tickets-users`.
 
 El navegador utiliza HTML, CSS y JavaScript de `public/`. El servidor es
 Node.js con Express (`server.js` y `lib/`). Los adjuntos se guardan en Floci,
@@ -10,6 +15,11 @@ El análisis con Cursor utiliza Python y es opcional: sin clave o si falla,
 se genera una plantilla local.
 
 ## Ejecución local
+
+Para el stack integrado, usar los Compose de la raíz y su override local,
+según [DOCKER_OPERACION.md](../DOCKER_OPERACION.md). El servicio privado
+`plane-ticket-bridge` es obligatorio para enviar tickets. Las instrucciones
+siguientes de ejecución directa requieren un bridge ya desplegado y accesible.
 
 Requiere Node.js 22.13 o posterior y Docker con contenedores Linux para Floci.
 Las dependencias de Node están en `package.json` y sus versiones resueltas en
@@ -27,6 +37,11 @@ Para el análisis opcional se necesita Python 3.10 o posterior y
 El contenedor instala Python y el SDK automáticamente.
 
 ## Archivos para desplegar
+
+**Dokploy del proyecto integrado:** seleccionar el `docker-compose.yml` de la
+raíz del repositorio. Incluye el bridge y conserva las redes y routers existentes.
+Las instrucciones siguientes describen únicamente el Compose independiente de
+esta carpeta; ese modo exige `PLANE_BRIDGE_URL` y su secreto de integración.
 
 Antes solo existía `docker-compose.floci.yml`: no ejecutaba la aplicación.
 Ahora `Dockerfile` construye la aplicación con Node y Python, y

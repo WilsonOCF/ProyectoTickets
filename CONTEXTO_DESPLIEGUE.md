@@ -1,3 +1,5 @@
+> **Actualización 22/10/2026:** registro/login propios y autoría automática en Plane: ver [PORTAL_USUARIOS.md](./PORTAL_USUARIOS.md). Las secciones anteriores de autenticación con Plane son históricas.
+
 # Contexto de despliegue — GeneradorDeTicketsIntegrado
 > **Producción (21 octubre 2026):** la guía vigente es [AUDITORIA_DOKPLOY.md](./AUDITORIA_DOKPLOY.md). El Compose raíz ahora requiere Dokploy/Traefik, no publica puertos y utiliza `.env.example` actualizado. Las instrucciones locales y variables de abajo se conservan como histórico.
 > Actualizacion: proyectos dinamicos implementados. GET /api/proyectos consulta Plane con la API key del servidor (requiere sesion). El formulario carga nombres y UUIDs al abrirse; POST /api/tickets valida project_id contra el workspace. El analisis local y LLM respetan la seleccion. No se requieren variables por proyecto. Las referencias al mapeo TI/VENTAS que siguen son historicas.

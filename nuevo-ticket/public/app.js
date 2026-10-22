@@ -35,6 +35,28 @@ const loginStatus = document.getElementById("login-status");
 const loginBtn = document.getElementById("login-btn");
 const userLabel = document.getElementById("user-label");
 const logoutBtn = document.getElementById("logout-btn");
+const toggleAuth = document.getElementById("toggle-auth");
+let registering = false;
+let submitting = false;
+let pendingSubmission = null;
+const mutationHeaders = { "X-Tickets-Request": "1" };
+toggleAuth.addEventListener("click", () => {
+  registering = !registering;
+  document.getElementById("auth-title").textContent = registering ? "Crea tu cuenta" : "Inicia sesión";
+  document.getElementById("auth-description").textContent = registering ? "Regístrate para enviar tus solicitudes de soporte." : "Entra con tu cuenta para enviar una solicitud de soporte.";
+  document.getElementById("register-name-field").hidden = !registering;
+  document.getElementById("register-name").required = registering;
+  const password = document.getElementById("login-password");
+  password.autocomplete = registering ? "new-password" : "current-password";
+  password.minLength = registering ? 12 : 1;
+  document.getElementById("registration-hint").hidden = !registering;
+  loginBtn.textContent = registering ? "Crear cuenta" : "Entrar";
+  toggleAuth.textContent = registering ? "Ya tengo cuenta. Iniciar sesión" : "¿No tienes cuenta? Regístrate";
+  setLoginStatus("");
+});
+fetch("/api/auth/config").then(response => response.json()).then(data => {
+  toggleAuth.hidden = !data.registrationEnabled;
+}).catch(() => {});
 
 const form = document.getElementById("ticket-form");
 const fileInput = document.getElementById("capturas");
@@ -67,7 +89,7 @@ async function loadProjects() {
     if (data.some(project => project.id === previous)) projectSelect.value = previous;
     if (!data.length) throw new Error("No hay proyectos disponibles en este workspace.");
     projectSelect.disabled = false;
-    submitBtn.disabled = false;
+    submitBtn.disabled = submitting;
   } catch (err) {
     projectSelect.replaceChildren(new Option("Sin proyectos disponibles", ""));
     projectsStatus.textContent = err.message;
@@ -90,6 +112,8 @@ function setLoginStatus(msg, kind = "") {
 }
 
 function showApp(user) {
+  try { pendingSubmission = JSON.parse(sessionStorage.getItem(`tickets-pending:${user.id}`)); }
+  catch { pendingSubmission = null; }
   currentUser = user;
   authGate.hidden = true;
   appShell.hidden = false;
@@ -111,12 +135,11 @@ function renderSide() {
 }
 
 function renderFiles() {
-  fileList.innerHTML = selectedFiles
-    .map((f) => {
-      const mb = (f.size / (1024 * 1024)).toFixed(2);
-      return `<li>${f.name} <span>(${mb} MB)</span></li>`;
-    })
-    .join("");
+  fileList.replaceChildren(...selectedFiles.map(file => {
+    const item = document.createElement("li");
+    item.textContent = `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+    return item;
+  }));
 }
 
 function addFiles(fileListLike) {
@@ -165,13 +188,14 @@ loginForm.addEventListener("submit", async (e) => {
     return;
   }
   loginBtn.disabled = true;
-  setLoginStatus("Validando con Plane…");
+  toggleAuth.disabled = true;
+  setLoginStatus(registering ? "Creando cuenta…" : "Iniciando sesión…");
   try {
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch(registering ? "/api/auth/register" : "/api/auth/login", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      headers: { ...mutationHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, name: document.getElementById("register-name").value.trim() }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Login falló");
@@ -182,12 +206,22 @@ loginForm.addEventListener("submit", async (e) => {
     setLoginStatus(err.message || "No se pudo entrar", "err");
   } finally {
     loginBtn.disabled = false;
+    toggleAuth.disabled = false;
   }
 });
 
 logoutBtn.addEventListener("click", async () => {
-  await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
-  showLogin();
+  if (submitting) return;
+  try {
+    const response = await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", headers: mutationHeaders });
+    if (!response.ok) throw new Error();
+    form.reset();
+    selectedFiles = [];
+    if (currentUser) sessionStorage.removeItem(`tickets-pending:${currentUser.id}`);
+    pendingSubmission = null;
+    renderFiles();
+    showLogin();
+  } catch { setStatus("No se pudo cerrar la sesión. Intenta nuevamente.", "err"); }
 });
 
 document.querySelectorAll(".type-card").forEach((card) => {
@@ -225,11 +259,12 @@ dropzone.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (submitting) return;
   setStatus("");
 
   if (!currentUser) {
     showLogin();
-    setLoginStatus("Tenés que estar logueado en Plane.", "err");
+    setLoginStatus("Inicia sesión para enviar tu ticket.", "err");
     return;
   }
 
@@ -256,13 +291,25 @@ form.addEventListener("submit", async (e) => {
   body.append("pasos", pasos);
   for (const file of selectedFiles) body.append("capturas", file);
 
+  // Preserve the key for unchanged retries; server also verifies the actual bytes.
+  submitting = true;
   submitBtn.disabled = true;
-  setStatus("Analizando y creando ticket en Plane vía MCP…");
+  logoutBtn.disabled = true;
+  setStatus("Enviando tu solicitud…");
 
   try {
+    const content = JSON.stringify([project_id, selectedType, titulo, prioridad, descripcion, modulo, pasos,
+      await Promise.all(selectedFiles.map(async file => [file.name, file.type,
+        Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))).join(",")]))]);
+    const signature = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content)))).join(",");
+    if (!pendingSubmission || pendingSubmission.signature !== signature) {
+      pendingSubmission = { signature, key: crypto.randomUUID() };
+    }
+    sessionStorage.setItem(`tickets-pending:${currentUser.id}`, JSON.stringify(pendingSubmission));
     const res = await fetch("/api/tickets", {
       method: "POST",
       credentials: "same-origin",
+      headers: { ...mutationHeaders, "Idempotency-Key": pendingSubmission.key },
       body,
     });
     const data = await res.json();
@@ -274,13 +321,9 @@ form.addEventListener("submit", async (e) => {
     if (!res.ok) throw new Error(data.error || "No se pudo crear");
 
     const id = data.plane?.identifier || data.plane?.id;
-    const url = data.plane?.url;
-    setStatus(
-      url
-        ? `Listo: ${id} — ${url}`
-        : `Listo: ${data.message}`,
-      "ok"
-    );
+    setStatus(`Listo: ${id || data.message}. ${(data.warnings || []).join(" ")}`, "ok");
+    sessionStorage.removeItem(`tickets-pending:${currentUser.id}`);
+    pendingSubmission = null;
     form.reset();
     document.getElementById("prioridad").value = "media";
     selectedFiles = [];
@@ -290,7 +333,9 @@ form.addEventListener("submit", async (e) => {
       setStatus(err.message || "Error al crear el ticket", "err");
     }
   } finally {
-    submitBtn.disabled = false;
+    submitting = false;
+    logoutBtn.disabled = false;
+    submitBtn.disabled = projectSelect.disabled;
   }
 });
 

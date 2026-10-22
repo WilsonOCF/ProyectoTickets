@@ -9,6 +9,10 @@ services:
       HOST: 0.0.0.0
       PORT: "5179"
       SESSION_SECRET: ${SESSION_SECRET:?Configura SESSION_SECRET}
+      TICKETS_DATABASE_PATH: /app/data/portal.sqlite
+      TICKETS_REGISTRATION_ENABLED: ${TICKETS_REGISTRATION_ENABLED:-true}
+      PLANE_BRIDGE_URL: ${PLANE_BRIDGE_URL:?Usa el Compose raiz o configura el bridge privado}
+      TICKETS_BRIDGE_SECRET: ${TICKETS_BRIDGE_SECRET:-${SESSION_SECRET}}
       PLANE_API_URL: ${PLANE_API_URL:?Configura PLANE_API_URL}
       PLANE_WEB_URL: ${PLANE_WEB_URL:?Configura PLANE_WEB_URL}
       PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:?Configura PLANE_WORKSPACE_SLUG}
@@ -23,6 +27,8 @@ services:
       LLM_MODEL: ${LLM_MODEL:-auto}
     expose:
       - "5179"
+    volumes:
+      - tickets-users:/app/data
     depends_on:
       - floci
   floci:
@@ -36,4 +42,5 @@ services:
     volumes:
       - floci-data:/app/data
 volumes:
+  tickets-users:
   floci-data:

@@ -36,6 +36,8 @@ body {
   margin: 0 auto;
 }
 
+[hidden] { display: none !important; }
+
 .auth-gate {
   position: fixed;
   inset: 0;
@@ -227,6 +229,8 @@ body {
 }
 
 input[type="text"],
+input[type="email"],
+input[type="password"],
 select,
 textarea {
   width: 100%;
